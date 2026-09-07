@@ -65,10 +65,17 @@ threshold — 149.900 against a ceiling of 150.000, 71 hours against a limit of 
 claims against a rule that fires at three — took it to 69%. The boundary is where the
 judgement is, and a suite without it measures the easy middle.
 
-**The noise floor is ±9 points** at 96 trials, down from ±16 at 32. That is the concrete
-payoff of the bigger suite: the gate's regression tolerance tracks the floor, so it went
-from 15 points to 10 — stricter because there is more evidence behind it, not because it
-was asked to be.
+**The noise floor is ±19 points**, and that number is computed over the 24 distinct
+cases rather than the 96 trials. The distinction was not obvious and it was wrong here
+first: repetitions vary the model seed, and at temperature 0 that barely moves a local
+model — measured, 21 of 24 cases return the identical action in all four reps. Four
+trials of one case are close to one observation repeated, so dividing by 96 halves an
+interval that never shrank. The reps still earn their place by varying the ERP's die, and
+they would vary the model against a backend sampling above zero. They are just not
+independent draws.
+
+So nothing above should be read to two significant figures. 69% against a majority
+baseline of 46% is a real gap; 69% against 75% would not be.
 
 ## The ERP is the hard part
 
@@ -169,6 +176,11 @@ Design rules that each came from a specific failure:
   a typo into a case that still runs, still scores, and claims coverage it does not have.
 - **A metric must be able to fail.** The plan called for a cost ceiling in dollars; on a
   local backend that is always zero, so it is a latency ceiling instead.
+- **Two different uncertainties, kept apart.** The interval above asks "what would the
+  next 24 cases give?" — ±19. The gate's regression tolerance asks something much
+  narrower: "would re-running this same commit give a different number?" Against a
+  deterministic local backend, almost not at all. Setting the gate by the first number
+  would make it blind; setting the README by the second would make it overconfident.
 - **Reproducible, and checked rather than assumed.** Profile, seed edits, die and clock
   are pinned per trial from a hash of `(case_id, rep)`. The smoke policies produced
   identical numbers on Linux in CI and on Windows locally, and seven consecutive runs of

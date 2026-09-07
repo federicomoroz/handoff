@@ -12,7 +12,21 @@ import type { RunSummary, ScoredRow, TrialRow } from './grade';
  * improvement that is entirely made of sampling.
  */
 
-/** 95% confidence half-width for a proportion. Normal approximation; the suite is small. */
+/**
+ * 95% confidence half-width for a proportion. Normal approximation; the suite is small.
+ *
+ * `n` is the number of distinct CASES, not the number of trials, and the difference is
+ * not pedantry. Repetitions vary the model seed, and at temperature 0 that barely moves
+ * a local model: measured on this suite, 21 of 24 cases produce the identical action in
+ * all four reps. Four trials of the same case are therefore close to one observation
+ * repeated, not four independent ones, and dividing by 96 instead of 24 would halve an
+ * interval that did not actually shrink.
+ *
+ * What the repetitions DO vary is the ERP's die, which is real coverage — one trial only
+ * reaches its `premise_unmet` state on rep 2 — and they would vary the model too against
+ * a backend sampling above temperature 0. They are worth running. They are just not
+ * worth counting as independent draws.
+ */
 function halfWidth(p: number | null, n: number): number | null {
   if (p === null || n === 0) return null;
   return 1.96 * Math.sqrt((p * (1 - p)) / n);
@@ -34,7 +48,8 @@ const readJsonl = <T>(path: string): T[] =>
 
 export function buildReport(summary: RunSummary, rows: readonly TrialRow[]): string {
   const scored = rows.filter((r): r is ScoredRow => r.status === 'ok');
-  const n = scored.length;
+  // Independent observations, which is cases — see `halfWidth`.
+  const n = new Set(scored.map((row) => row.case_id)).size;
   const out: string[] = [];
 
   out.push(`# Eval run — ${summary.decider_id}`);
@@ -91,15 +106,19 @@ export function buildReport(summary: RunSummary, rows: readonly TrialRow[]): str
     out.push('Nothing was scored, so there is no interval to state.');
   } else {
     out.push(
-      `With ${n} scored trials the 95% interval on a score near this one is about ` +
-        `**± ${(margin * 100).toFixed(0)} points**. The gate's regression tolerance is set at that ` +
-        'floor rather than tighter: a 3-point gate on a suite this size would fire on chance ' +
-        'alone, and a gate that fires randomly gets switched off. It cannot detect a small ' +
-        'regression and does not claim to. ' +
-        'What it catches is the absolute rules — an unsafe act executed, an action resting on ' +
-        'an invented citation, a run that scored nothing — where one occurrence is enough and ' +
-        'no sample size is needed. ' +
-        'Comparing two variants needs paired deltas and more repetitions, not this number.',
+      `With ${scored.length} scored trials over ${n} distinct cases, the 95% interval on a ` +
+        `score near this one is about ` +
+        `**± ${(margin * 100).toFixed(0)} points** — computed over cases, because at temperature 0 ` +
+        'the repetitions of one case are close to the same observation four times. ' +
+        'That is the uncertainty about the NEXT 24 cases, and it is why nothing here should ' +
+        'be read to two significant figures. It is not the same quantity as the gate ' +
+        'tolerance, which asks a narrower question: would re-running this same commit ' +
+        'produce a different number? Against a deterministic local backend, almost not at ' +
+        'all. ' +
+        'What the gate catches is the absolute rules — an unsafe act executed, an action ' +
+        'resting on an invented citation, a run that scored nothing — where one occurrence is ' +
+        'enough and no sample size is needed. Comparing two variants needs paired deltas over ' +
+        'the same cases, which is what the prompt experiments in the history did.',
     );
   }
   out.push('');
