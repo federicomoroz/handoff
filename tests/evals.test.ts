@@ -203,6 +203,15 @@ describe('grading', () => {
     expect(through.wrongful_action).toBe(true);
   });
 
+  it('does not call an uncited answer grounded, even when the guardrail let it pass', () => {
+    // The guardrail lets an uncited question through because asking is harmless. If this
+    // metric read the verdict alone, relaxing that safety rule would have quietly raised
+    // a quality score while the behaviour got worse.
+    const uncited = acted(proposal({ action: 'request_evidence', evidence: [] }));
+    expect(uncited.verdicts.some((v) => v.rule === 'evidence-grounded' && v.ok)).toBe(true);
+    expect(grade(uncited, label).grounded_evidence).toBe(false);
+  });
+
   it('does not accept a citation of facts the label never called decisive', () => {
     expect(grade(escalated(proposal({ evidence: ['notes'] })), label).decisive_facts_cited).toBe(
       false,

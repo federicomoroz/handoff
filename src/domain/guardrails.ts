@@ -1,6 +1,6 @@
 import { cents, compareCents, formatArs, type Cents } from './money';
 import { FACT_PATHS, presentFactPaths, TERMINAL_SHIPMENT_STATES, type CaseFacts } from './facts';
-import { isActing, type GuardrailVerdict, type Outcome, type Proposal } from './decision';
+import { isActing, type Action, type GuardrailVerdict, type Outcome, type Proposal } from './decision';
 import { HOUR_MS } from './time';
 
 /**
@@ -36,13 +36,33 @@ export const STALE_FACT_HOURS = 72;
 
 export type Guardrail = (proposal: Proposal, facts: CaseFacts) => GuardrailVerdict;
 
+/**
+ * The actions that move money or goods.
+ *
+ * `escalate` costs a person's attention and `request_evidence` costs a message; these
+ * two are the ones nobody can undo, and they are what the strict rules are for.
+ */
+const IRREVERSIBLE: readonly Action[] = ['refund', 'reship'];
+
 const pass = (rule: string): GuardrailVerdict => ({ ok: true, rule });
 const block = (rule: string, reason: string): GuardrailVerdict => ({ ok: false, rule, reason });
 
-/** 1. Low confidence plus an urge to act is the combination worth stopping. */
+/**
+ * 1. Low confidence plus an urge to move money or goods is the combination worth stopping.
+ *
+ * It used to gate `request_evidence` too, and that was backwards. Asking the customer
+ * for a photo is what you DO when you are not sure — demanding 75% confidence before
+ * allowing a question means the only thing an unsure agent is permitted to do is wake a
+ * person. Measured, it turned a correct answer into an escalation on every repetition of
+ * `act-no-tracking`: the model proposed exactly the right action at 0.60 and the floor
+ * threw it out.
+ *
+ * Same line as everywhere else in this file: the strict rules guard what cannot be taken
+ * back. A question can always be taken back.
+ */
 export const confidenceFloor: Guardrail = (p) => {
   const rule = 'confidence-floor';
-  if (!isActing(p.action)) return pass(rule);
+  if (!IRREVERSIBLE.includes(p.action)) return pass(rule);
   return p.confidence >= CONFIDENCE_FLOOR
     ? pass(rule)
     : block(rule, `confidence ${p.confidence.toFixed(2)} below floor ${CONFIDENCE_FLOOR}`);
@@ -63,17 +83,26 @@ export const refundCeiling: Guardrail = (p) => {
  * An INVENTED citation blocks any action, escalation included — a hallucinated fact is a
  * problem no matter what the model concluded from it.
  *
- * An EMPTY citation blocks only an action. The two are not the same failure. On a case
- * where the ERP returned nothing at all — an order it does not have — there is literally
- * nothing to cite, and "I have nothing, send it to a person" is the correct answer said
- * correctly. Blocking that made a clean escalation impossible on exactly the cases where
- * escalating is most obviously right, and scored the model down for being honest about
- * an empty hand. Acting on nothing is still blocked, which is the part that matters.
+ * An EMPTY citation blocks only the irreversible actions, and that line moved twice.
+ * First for escalation: on an order the ERP does not have there is nothing to cite, and
+ * "I have nothing, send it to a person" is the right answer said correctly. Then for
+ * `request_evidence`, for the same reason the confidence floor no longer gates it —
+ * asking the customer a question is cheap and undoable, and refusing to let an agent ask
+ * until it can cite a fact leaves it with waking a person as its only legal move when it
+ * has little to go on. Measured, that was the single most common way a correct answer
+ * became an escalation.
+ *
+ * Moving money or goods on no stated basis is still blocked, which is the part that
+ * matters, and an INVENTED citation is still blocked whatever the action.
+ *
+ * Note what this does NOT do: it does not make an uncited answer look good. The
+ * `grounded_evidence` metric counts a citation, not a passing verdict, precisely so that
+ * loosening a safety rule cannot quietly improve a quality score.
  */
 export const evidenceGrounded: Guardrail = (p, f) => {
   const rule = 'evidence-grounded';
   if (p.evidence.length === 0) {
-    return isActing(p.action) ? block(rule, 'cited no facts at all') : pass(rule);
+    return IRREVERSIBLE.includes(p.action) ? block(rule, 'cited no facts at all') : pass(rule);
   }
 
   const present = presentFactPaths(f);

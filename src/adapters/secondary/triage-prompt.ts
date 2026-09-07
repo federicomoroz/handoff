@@ -10,6 +10,7 @@ import {
   STALE_FACT_HOURS,
 } from '../../domain/guardrails';
 import { FACT_PATHS, presentFactPaths, type CaseFacts } from '../../domain/facts';
+import { HOUR_MS } from '../../domain/time';
 
 /**
  * Prompt assembly.
@@ -99,7 +100,7 @@ export function renderFacts(facts: CaseFacts): string {
   }
   for (const [path, extract] of Object.entries(FACT_PATHS)) {
     if (!present.has(path)) continue;
-    lines.push(`- ${path}: ${humanize(path, extract(facts) ?? '', facts)}`);
+    lines.push(`- ${path}: ${humanize(path, extract(facts) ?? '', facts)}${verdict(path, facts)}`);
   }
 
   lines.push('');
@@ -134,6 +135,38 @@ function fence(text: string): string {
     .split(/\r?\n/)
     .map((line) => `| ${line}`)
     .join('\n');
+}
+
+/**
+ * States whether a fact is over or under the threshold that applies to it.
+ *
+ * This is the project's own rule turned on the prompt. Everything with exactly one
+ * correct answer is resolved in code and never handed to the model — the XML, the
+ * ambiguous state, the three date formats — and a numeric comparison against a fixed
+ * threshold is precisely that. Leaving it to the model was inconsistent with the rest of
+ * the design, and the model was doing it badly: given `history.claims_90d: 2` against a
+ * rule that fires at three, it answered "claims within the last 90 days exceed the
+ * threshold for escalation" on every repetition of `act-lost-two-claims`.
+ *
+ * The judgement is untouched. Which of the permitted actions to take, whether the
+ * shipment state supports a refund, whether the customer's account is credible — all of
+ * that is still the model's, and it is the only part worth measuring.
+ */
+function verdict(path: string, facts: CaseFacts): string {
+  if (path === 'order.total' && facts.order) {
+    const over = facts.order.total > HIGH_VALUE_ORDER;
+    return `  (high-value threshold ${pesos(HIGH_VALUE_ORDER)}: ${over ? 'OVER' : 'under'})`;
+  }
+  if (path === 'history.claims_90d' && facts.history) {
+    const over = facts.history.claimsLast90Days >= REPEAT_OFFENDER_CLAIMS;
+    return `  (repeat-offender rule fires at ${REPEAT_OFFENDER_CLAIMS}: ${over ? 'FIRES' : 'does not fire'})`;
+  }
+  if (path === 'shipment.last_event_at' && facts.shipment?.lastEventAt) {
+    const hours = (facts.evaluatedAt.getTime() - facts.shipment.lastEventAt.getTime()) / HOUR_MS;
+    const stale = hours > STALE_FACT_HOURS;
+    return `  (${hours.toFixed(0)}h ago, limit ${STALE_FACT_HOURS}h: ${stale ? 'STALE' : 'fresh'})`;
+  }
+  return '';
 }
 
 /**

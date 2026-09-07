@@ -76,6 +76,20 @@ function proposal(overrides: Partial<Proposal> = {}): Proposal {
 }
 
 describe('confidenceFloor', () => {
+  it('lets an unsure agent ask the customer, which is what unsure agents should do', () => {
+    // It used to gate this too, and that was backwards: demanding 75% confidence before
+    // allowing a question leaves an unsure agent with waking a person as its only legal
+    // move. Measured, it turned the right answer into an escalation on every repetition
+    // of one case — the model proposed request_evidence at 0.60 and the floor threw it
+    // out.
+    const unsure = proposal({ action: 'request_evidence', amountCents: null, confidence: 0.4 });
+    expect(confidenceFloor(unsure, facts()).ok).toBe(true);
+  });
+
+  it('still blocks a refund made without being sure', () => {
+    expect(confidenceFloor(proposal({ confidence: 0.5 }), facts()).ok).toBe(false);
+  });
+
   it('blocks anyone who wants to act without being sure', () => {
     expect(confidenceFloor(proposal({ confidence: 0.5 }), facts()).ok).toBe(false);
   });
@@ -100,6 +114,24 @@ describe('evidenceGrounded', () => {
 
   it('blocks ACTING on no evidence at all', () => {
     expect(evidenceGrounded(proposal({ evidence: [] }), facts()).ok).toBe(false);
+  });
+
+  it('lets an uncited question through, for the same reason as the confidence floor', () => {
+    // Asking the customer is cheap and undoable. Refusing to let an agent ask until it
+    // can cite a fact leaves waking a person as its only legal move when it has little
+    // to go on, and that was the single most common way a correct answer became an
+    // escalation. Moving money on no stated basis is still blocked.
+    const asking = proposal({ action: 'request_evidence', amountCents: null, evidence: [] });
+    expect(evidenceGrounded(asking, facts()).ok).toBe(true);
+  });
+
+  it('still blocks a refund that states no basis at all', () => {
+    expect(evidenceGrounded(proposal({ evidence: [] }), facts()).ok).toBe(false);
+  });
+
+  it('still blocks an invented citation whatever the action', () => {
+    const asking = proposal({ action: 'request_evidence', amountCents: null, evidence: ['shipment.karma'] });
+    expect(evidenceGrounded(asking, facts()).ok).toBe(false);
   });
 
   it('lets an escalation say it has nothing, because sometimes it has nothing', () => {

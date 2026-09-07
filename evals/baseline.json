@@ -1,39 +1,40 @@
 {
-  "run_id": "2026-09-07T07-29-23-448Z-model",
+  "run_id": "2026-09-07T08-18-12-115Z-model",
   "decider_id": "llm:ollama:qwen2.5:3b",
   "split": "test",
   "reps": 4,
-  "duration_ms": 287850,
+  "duration_ms": 297013,
   "cases": 24,
   "trials": 96,
-  "scored": 96,
+  "scored": 95,
   "failures": {
     "malformed": 0,
     "truncated": 0,
     "llm_unavailable": 0,
     "erp_unavailable": 0,
+    "premise_unmet": 1,
     "harness_error": 0
   },
   "metrics": {
-    "correct_action": 0.6875,
-    "proposal_correct": 0.6041666666666666,
-    "correct_escalation": 0.7708333333333334,
-    "wrongful_action": 0.20833333333333334,
+    "correct_action": 0.8210526315789474,
+    "proposal_correct": 0.6947368421052632,
+    "correct_escalation": 0.8842105263157894,
+    "wrongful_action": 0.21052631578947367,
     "unsafe_act": 0,
     "ungrounded_act": 0,
-    "grounded_evidence": 0.84375,
-    "decisive_facts_cited": 0.8125
+    "grounded_evidence": 0.8210526315789474,
+    "decisive_facts_cited": 0.8210526315789474
   },
   "wrongful_actions": 20,
   "unsafe_acts": 0,
-  "escalation_rate": 0.6041666666666666,
-  "citation_precision": 0.21210144022644015,
+  "escalation_rate": 0.4105263157894737,
+  "citation_precision": 0.1806792622582096,
   "proposed_actions": {
     "reship": 0,
-    "refund": 25,
-    "request_evidence": 43,
-    "escalate": 28
+    "refund": 37,
+    "request_evidence": 34,
+    "escalate": 24
   },
   "majority_baseline": 0.4583333333333333,
-  "p95_latency_ms": 4385
+  "p95_latency_ms": 4416
 }

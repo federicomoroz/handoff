@@ -41,11 +41,11 @@ npm run gate                 # exit != 0 blocks the merge
 
 | | |
 | --- | --- |
-| correct action (the system) | **69%** |
-| sound proposal (the model alone) | **60%** |
-| correct escalation | 77% |
-| grounded evidence | 84% |
-| decisive facts cited | 81% |
+| correct action (the system) | **82%** |
+| sound proposal (the model alone) | **69%** |
+| correct escalation | 88% |
+| grounded evidence | 82% |
+| decisive facts cited | 82% |
 | reckless proposals | 20 of 96 |
 | **unsafe acts executed** | **0** |
 | majority baseline | 46% |
@@ -59,11 +59,16 @@ That is not a flattering result and it is the honest one. A 3B model running on 
 consumer GPU is not a good triage agent. What the project demonstrates is that you can
 know that precisely, and that the net around it holds anyway.
 
-An earlier version of this suite had 8 cases and reported **88%** on the first row. That
+An earlier version of this suite had 8 cases and reported 88% on the first row. That
 number was not wrong, it was undersampled: adding cases that sit one unit under each
 threshold — 149.900 against a ceiling of 150.000, 71 hours against a limit of 72, two
 claims against a rule that fires at three — took it to 69%. The boundary is where the
 judgement is, and a suite without it measures the easy middle.
+
+The 69% then became 82% by fixing three things the failures pointed at, diagnosed
+entirely on the `dev` split and measured once on `test` afterwards. Paired over the same
+cases: 16 trials moved from wrong to right, 4 the other way. Details in
+[Where the score came from](#where-the-score-came-from).
 
 **The noise floor is ±19 points**, and that number is computed over the 24 distinct
 cases rather than the 96 trials. The distinction was not obvious and it was wrong here
@@ -76,6 +81,60 @@ independent draws.
 
 So nothing above should be read to two significant figures. 69% against a majority
 baseline of 46% is a real gap; 69% against 75% would not be.
+
+## Where the score came from
+
+69% to 82%, from three changes. None of them was a guess: the failures were read case by
+case on the `dev` split, fixed there, and the `test` split was measured once at the end
+and never used for tuning.
+
+The failures were not noise. Of 24 test cases, 15 were right on all four repetitions and
+7 were wrong on all four — a model that is consistently wrong about seven specific
+situations, not one that is randomly right two thirds of the time. That is diagnosable.
+
+**Threshold comparisons moved into code.** Shown `history.claims_90d: 2` against a rule
+that fires at three, the model answered "claims within the last 90 days exceed the
+threshold for escalation" on every repetition. So the rendered facts now carry the
+comparison — `(repeat-offender rule fires at 3: does not fire)` — the same way the XML,
+the ambiguous state code and the three date formats are already resolved before the model
+sees them. Leaving an arithmetic comparison to the model was inconsistent with the
+project's own rule that anything with one correct answer belongs in code. It also stopped
+the model emitting an invalid `action` on one case, which it had been doing three times
+in four.
+
+**The confidence floor stopped gating questions.** It blocked any action below 75%
+confidence, `request_evidence` included — so the only move available to an unsure agent
+was waking a person. Asking the customer for a photo is what you do *because* you are
+unsure. It now gates `refund` and `reship`, the two that cannot be taken back. On its
+own this changed almost nothing (65% to 64% on dev) and it was kept anyway, because the
+argument does not depend on the number.
+
+**An uncited question stopped being blocked**, for the same reason. Moving money on no
+stated basis is still blocked, and an *invented* citation is still blocked whatever the
+action. This one mattered: it was the single most common way a correct answer became an
+escalation.
+
+Loosening a safety rule must not flatter a quality score, so `grounded_evidence` now
+counts a real citation rather than a passing verdict. Without that, this change would
+have raised the grounding number while the behaviour got worse.
+
+### What it cost
+
+One case regressed, and it is worth naming rather than burying. `esc-no-shipment-record`
+— the ERP has no shipment for a tracking id the order names — used to be caught by the
+empty-citation rule and escalated. It was right by accident: the guardrail stopped it on
+a citation technicality, not because anything understood the case. Now the model asks the
+customer for evidence they cannot supply. No money moved, `unsafe_acts` is still 0, but a
+case that wanted a person got a message instead.
+
+### What is still wrong
+
+Three cases in `dev` still fail on all four repetitions, and two of them share a pattern
+worth stating: the shipment is **lost**, and the model asks the customer to photograph
+it. There is nothing to photograph. The third proposes a refund above the ceiling instead
+of the reship that is plainly available. Both are judgement, not arithmetic, and both are
+where a larger model is the obvious lever — `LlmPort` exists so that is a one-line
+change, and there is no API budget here to measure it.
 
 ## The ERP is the hard part
 
@@ -135,6 +194,13 @@ not build the agent.
 Eleven pure functions over the proposal and the facts. All eleven are evaluated — there
 is no short-circuit on the first block, because stopping early gives the same decision
 and loses the diagnosis.
+
+They are not uniformly strict, and the line between them is deliberate: **the hard rules
+guard what cannot be undone.** A refund and a reship move money and goods; an escalation
+costs a person's attention and a question costs a message. So the confidence floor, the
+empty-citation rule and the wrongful-action count all apply to `refund` and `reship`
+only. Applying them to a question meant an unsure agent's only legal move was waking a
+person, which is the expensive answer to a cheap problem.
 
 They did not start out failing closed, and the bug is worth stating: every rule asked
 "is this fact bad?" and none asked "is this fact there?". With the history read returning
