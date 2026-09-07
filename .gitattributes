@@ -1,0 +1,3 @@
+# The repo stores LF. Windows checkouts still get CRLF locally; what CI reads is
+# normalised, so a line ending never shows up as a diff.
+* text=auto eol=lf
