@@ -48,7 +48,14 @@ let cached: string | null = null;
 export function loadSystemPrompt(): string {
   if (cached !== null) return cached;
 
-  const raw = readFileSync(join(HERE, '..', '..', 'prompts', 'triage.system.md'), 'utf-8');
+  // Line endings are normalised, and that is not cosmetic. This text is hashed to name
+  // an eval cassette, so a file checked out with CRLF on Windows and LF on Linux would
+  // produce two different keys for the same prompt and invalidate every recording on the
+  // other platform. The prompt is data feeding a hash; it has to be canonical.
+  const raw = readFileSync(join(HERE, '..', '..', 'prompts', 'triage.system.md'), 'utf-8').replace(
+    /\r\n/g,
+    '\n',
+  );
   const filled = raw.replace(/\{\{(\w+)\}\}/g, (_match, key: string) => {
     const value = PROMPT_VALUES[key];
     // A typo in a placeholder would otherwise ship as literal `{{FOO}}` to the model.

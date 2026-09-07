@@ -37,6 +37,14 @@ function facts(overrides: Partial<CaseFacts> = {}): CaseFacts {
 }
 
 describe('the system prompt', () => {
+  it('carries no carriage returns, whatever the checkout did to the file', () => {
+    // The prompt is hashed to name an eval cassette. A file checked out with CRLF on
+    // Windows and LF on Linux would give the same prompt two different keys and
+    // invalidate every recording on the other platform — which is exactly how the first
+    // set of cassettes was recorded, and would have failed in CI.
+    expect(loadSystemPrompt()).not.toMatch(/\r/);
+  });
+
   it('leaves no placeholder unfilled', () => {
     expect(loadSystemPrompt()).not.toMatch(/\{\{/);
   });

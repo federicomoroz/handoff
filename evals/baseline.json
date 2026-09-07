@@ -1,9 +1,9 @@
 {
-  "run_id": "2026-09-07T08-53-41-328Z-model",
+  "run_id": "2026-09-07T09-02-50-237Z-model",
   "decider_id": "llm:ollama:qwen2.5:3b",
   "split": "test",
   "reps": 4,
-  "duration_ms": 75710,
+  "duration_ms": 75806,
   "cases": 24,
   "trials": 96,
   "scored": 95,
@@ -18,24 +18,24 @@
   },
   "metrics": {
     "correct_action": 0.8315789473684211,
-    "proposal_correct": 0.7052631578947368,
-    "correct_escalation": 0.8736842105263158,
-    "wrongful_action": 0.21052631578947367,
+    "proposal_correct": 0.6736842105263158,
+    "correct_escalation": 0.8315789473684211,
+    "wrongful_action": 0.2,
     "unsafe_act": 0,
     "ungrounded_act": 0,
-    "grounded_evidence": 0.8421052631578947,
-    "decisive_facts_cited": 0.8421052631578947
+    "grounded_evidence": 0.9578947368421052,
+    "decisive_facts_cited": 0.9157894736842105
   },
-  "wrongful_actions": 20,
+  "wrongful_actions": 19,
   "unsafe_acts": 0,
-  "escalation_rate": 0.4105263157894737,
-  "citation_precision": 0.19387764282501121,
+  "escalation_rate": 0.5368421052631579,
+  "citation_precision": 0.17733284259600046,
   "proposed_actions": {
     "reship": 0,
-    "refund": 40,
-    "request_evidence": 32,
-    "escalate": 23
+    "refund": 43,
+    "request_evidence": 20,
+    "escalate": 32
   },
   "majority_baseline": 0.4583333333333333,
-  "p95_latency_ms": 2032
+  "p95_latency_ms": 2052
 }
