@@ -1,0 +1,7 @@
+node_modules/
+.env
+*.log
+
+# Every eval run writes its own directory. What gets versioned is the baseline and the
+# latest report, not the runs.
+evals/results/

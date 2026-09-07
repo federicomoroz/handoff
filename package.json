@@ -1,0 +1,28 @@
+{
+  "name": "handoff",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Agent that triages incidents against a legacy ERP it does not control, with hard guardrails and an eval suite that blocks the merge.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "probe": "tsx scripts/probe-ollama.ts",
+    "triage": "tsx scripts/triage-once.ts",
+    "measure": "tsx scripts/measure-citations.ts"
+  },
+  "dependencies": {
+    "hono": "4.13.7",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
+  }
+}
