@@ -6,6 +6,7 @@ import { loadSuite } from '../evals/runner';
 import { FACT_PATHS } from '../src/domain/facts';
 import { cents } from '../src/domain/money';
 import type { Outcome, Proposal } from '../src/domain/decision';
+import type { CaseFacts } from '../src/domain/facts';
 
 /**
  * Tier 1: the checks that run on the case files themselves, with no model involved.
@@ -133,9 +134,34 @@ function proposal(overrides: Partial<Proposal> = {}): Proposal {
   };
 }
 
+/** A case where the order arrived and nothing else did. Enough for the grader. */
+const FACTS: CaseFacts = {
+  incident: {
+    orderId: 'FC-10241',
+    kind: 'damaged',
+    customerMessage: 'llego roto',
+    reportedAt: new Date('2026-08-30T14:02:00Z'),
+    channel: 'email',
+  },
+  evaluatedAt: new Date('2026-08-30T15:00:00Z'),
+  order: {
+    orderId: 'FC-10241',
+    docType: 'FC',
+    total: cents(4_829_000),
+    placedAt: new Date('2026-08-20T12:00:00Z'),
+    customerDoc: '20304050',
+    trackingId: 'OCA-889',
+  },
+  shipment: null,
+  history: null,
+  notes: [],
+  missingFacts: [],
+};
+
 const escalated = (p: Proposal): Outcome => ({
   kind: 'escalated',
   proposal: p,
+  facts: FACTS,
   verdicts: [{ ok: true, rule: 'evidence-grounded' }],
   escalatedBy: 'guardrail',
   blockedBy: ['high-value-order'],
@@ -144,6 +170,7 @@ const escalated = (p: Proposal): Outcome => ({
 const acted = (p: Proposal): Outcome => ({
   kind: 'acted',
   proposal: p,
+  facts: FACTS,
   verdicts: [{ ok: true, rule: 'evidence-grounded' }],
 });
 

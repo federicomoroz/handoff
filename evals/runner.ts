@@ -4,6 +4,7 @@ import { buildTriageStack } from '../src/composition';
 import { SGC_HOSTILE, SGC_TAME } from '../src/external-mocks/erp-profile';
 import { seededDraw } from '../src/external-mocks/draw';
 import { TraceRecorder } from '../src/domain/trace';
+import { presentFactPaths } from '../src/domain/facts';
 import { ErpUnavailableError } from '../src/ports/erp';
 import { LlmUnavailableError } from '../src/ports/llm';
 import {
@@ -39,8 +40,15 @@ import {
  * that tries.
  *
  * What it DOES own is the scenario: which ERP profile, which seed edits, which die and
- * which clock. All four are pinned per trial, so a run is reproducible and a red result
- * can be re-run at will instead of explained away as a bad day.
+ * which clock. All four are pinned per trial, from a hash of `(case_id, rep)`, so a red
+ * result can be re-run instead of explained away as a bad day.
+ *
+ * That holds even where it looked like it might not. The simulated ERP expires its
+ * session by counting requests while the shipment, the history and the notes are read in
+ * parallel, and the retry backoff waits on real timers — enough moving parts that the
+ * same trial landing in `premise_unmet` on one run and not another would be entirely
+ * believable. It was checked rather than assumed: seven consecutive runs of the same
+ * configuration starve the same trial, `act-just-under-stale.2`, every time.
  */
 
 const CASE_FILES = ['evals/cases/escalate.jsonl', 'evals/cases/act.jsonl'];
@@ -135,6 +143,36 @@ async function runTrial(
       new Date(evalCase.evaluated_at),
       tracer,
     );
+
+    // Did this trial get to test what it says it tests? The hostile ERP can starve a
+    // read past every retry, and when the starved fact is the one the label calls
+    // decisive, the case is no longer the case. Scoring it anyway punishes the agent for
+    // answering a question it was never actually asked.
+    const present = presentFactPaths(outcome.facts);
+    const unmet = label.decisive_facts.filter((path) => !present.has(path));
+    if (unmet.length > 0) {
+      const message = `the ERP never delivered ${unmet.join(', ')}, which this case turns on`;
+      return {
+        row: {
+          ...common,
+          status: 'failed',
+          failure_class: 'premise_unmet',
+          message,
+          duration_ms: Date.now() - startedAt,
+        },
+        trajectory: {
+          ...context,
+          trace: tracer.entries,
+          facts: outcome.facts,
+          proposal: outcome.proposal,
+          verdicts: outcome.verdicts,
+          failure_class: 'premise_unmet',
+          message,
+          label,
+        },
+      };
+    }
+
     const metrics = grade(outcome, label);
 
     return {
@@ -157,6 +195,9 @@ async function runTrial(
       trajectory: {
         ...context,
         trace: tracer.entries,
+        // What the agent actually read. A trajectory with the verdict and not the
+        // evidence cannot tell bad reasoning from a hole in the data.
+        facts: outcome.facts,
         proposal: outcome.proposal,
         verdicts: outcome.verdicts,
         outcome_kind: outcome.kind,
@@ -286,6 +327,7 @@ const smokeFacts = (summary: RunSummary): SmokeFacts => ({
   trials: summary.trials,
   scored: summary.scored,
   malformed: summary.failures.malformed,
+  premiseUnmet: summary.failures.premise_unmet,
   correctAction: summary.metrics.correct_action,
   escalationRate: summary.escalation_rate,
   majorityBaseline: summary.majority_baseline,

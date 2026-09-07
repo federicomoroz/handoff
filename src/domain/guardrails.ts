@@ -59,12 +59,22 @@ export const refundCeiling: Guardrail = (p) => {
 
 /**
  * 3. Anti-hallucination: every citation must point at a fact the ERP actually returned.
- * The only guardrail that does not depend on the action — an invented citation is a
- * problem even when the model ends up escalating.
+ *
+ * An INVENTED citation blocks any action, escalation included — a hallucinated fact is a
+ * problem no matter what the model concluded from it.
+ *
+ * An EMPTY citation blocks only an action. The two are not the same failure. On a case
+ * where the ERP returned nothing at all — an order it does not have — there is literally
+ * nothing to cite, and "I have nothing, send it to a person" is the correct answer said
+ * correctly. Blocking that made a clean escalation impossible on exactly the cases where
+ * escalating is most obviously right, and scored the model down for being honest about
+ * an empty hand. Acting on nothing is still blocked, which is the part that matters.
  */
 export const evidenceGrounded: Guardrail = (p, f) => {
   const rule = 'evidence-grounded';
-  if (p.evidence.length === 0) return block(rule, 'cited no facts at all');
+  if (p.evidence.length === 0) {
+    return isActing(p.action) ? block(rule, 'cited no facts at all') : pass(rule);
+  }
 
   const present = presentFactPaths(f);
   for (const path of p.evidence) {
@@ -217,10 +227,10 @@ export function applyGuardrails(proposal: Proposal, facts: CaseFacts): Outcome {
   const blockedBy = verdicts.filter((v) => !v.ok).map((v) => v.rule);
 
   if (!isActing(proposal.action)) {
-    return { kind: 'escalated', proposal, verdicts, escalatedBy: 'model', blockedBy };
+    return { kind: 'escalated', proposal, facts, verdicts, escalatedBy: 'model', blockedBy };
   }
   if (blockedBy.length > 0) {
-    return { kind: 'escalated', proposal, verdicts, escalatedBy: 'guardrail', blockedBy };
+    return { kind: 'escalated', proposal, facts, verdicts, escalatedBy: 'guardrail', blockedBy };
   }
-  return { kind: 'acted', proposal, verdicts };
+  return { kind: 'acted', proposal, facts, verdicts };
 }

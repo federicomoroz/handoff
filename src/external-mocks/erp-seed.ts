@@ -256,6 +256,12 @@ export const BASE_SEED: ErpSeed = {
     // pagination has something to lie about.
     '27111222': { doc: '27111222', movimientos: movements(17, 5, 3) },
     '33999888': { doc: '33999888', movimientos: movements(3, 1, 0) },
+    // Exactly at the repeat-offender threshold, and exactly one below it. The rule is
+    // `>=`, so these two are the only way to test which side of the line it falls on —
+    // with 0, 1 and 5 claims the boundary is never actually exercised and the eval
+    // proves the threshold works for numbers nobody argues about.
+    '30555666': { doc: '30555666', movimientos: movements(6, 3, 0) },
+    '24777888': { doc: '24777888', movimientos: movements(5, 2, 0) },
   },
 
   notes: [

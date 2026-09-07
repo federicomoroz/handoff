@@ -78,6 +78,18 @@ describe.each([
     expect(history!.refundedLast90Days).toBe(8_800_000);
   });
 
+  it('puts two customers exactly on either side of the repeat-offender threshold', async () => {
+    // The rule is `claims >= 3`. With only 0, 1 and 5 claims in the seed, every eval case
+    // proves the threshold works for numbers nobody would argue about, and the line
+    // itself is never crossed. These two exist so a case can stand on each side of it.
+    const adapter = erp();
+
+    expect((await adapter.fetchHistory('30555666', EVALUATED_AT, NULL_TRACER))!.claimsLast90Days)
+      .toBe(3);
+    expect((await adapter.fetchHistory('24777888', EVALUATED_AT, NULL_TRACER))!.claimsLast90Days)
+      .toBe(2);
+  });
+
   it('a customer with no claims gives zero, which is not the same as not knowing', async () => {
     const history = await erp().fetchHistory('20304050', EVALUATED_AT, NULL_TRACER);
 

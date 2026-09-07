@@ -24,6 +24,7 @@ const HEALTHY: RunSummary = {
     truncated: 0,
     llm_unavailable: 0,
     erp_unavailable: 0,
+    premise_unmet: 0,
     harness_error: 0,
   },
   metrics: {

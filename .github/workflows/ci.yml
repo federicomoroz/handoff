@@ -35,4 +35,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run evals -- --smoke --reps 2
+      # One repetition, not two. At 36 cases the four policies take over three minutes
+      # at --reps 2, and the second rep only re-rolls the ERP's dice: the policies
+      # themselves are fixed. This job exists to prove the harness still works, not to
+      # accumulate statistical power.
+      - run: npm run evals -- --smoke --reps 1

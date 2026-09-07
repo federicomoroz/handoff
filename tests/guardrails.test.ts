@@ -98,8 +98,19 @@ describe('evidenceGrounded', () => {
     expect(evidenceGrounded(p, facts({ history: null })).ok).toBe(false);
   });
 
-  it('blocks a proposal with no evidence at all', () => {
+  it('blocks ACTING on no evidence at all', () => {
     expect(evidenceGrounded(proposal({ evidence: [] }), facts()).ok).toBe(false);
+  });
+
+  it('lets an escalation say it has nothing, because sometimes it has nothing', () => {
+    // When the ERP returned no order at all there is no path to cite, and "I have
+    // nothing, send it to a person" is the right answer said correctly. Blocking it made
+    // a clean escalation impossible on the cases where escalating is most obviously
+    // right, and then scored the model down for being honest about an empty hand.
+    const empty = proposal({ action: 'escalate', evidence: [] });
+    expect(evidenceGrounded(empty, facts({ order: null, shipment: null, history: null })).ok).toBe(
+      true,
+    );
   });
 
   it('applies even when the model escalates: an invented citation is never fine', () => {

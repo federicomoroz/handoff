@@ -1,4 +1,5 @@
 import type { Cents } from './money';
+import type { CaseFacts } from './facts';
 
 /** The four possible triage outcomes. */
 export type Action = 'reship' | 'refund' | 'request_evidence' | 'escalate';
@@ -35,6 +36,11 @@ export type GuardrailVerdict =
  * one that blocked: stopping early gives the same decision but loses the diagnosis, and
  * the report has to be able to name the three rules that fired.
  *
+ * `facts` is what the agent actually read before deciding, carried out with the result.
+ * Without it a trajectory records the verdict and not the evidence, and nobody reviewing
+ * a bad decision later can tell an agent that reasoned badly from one that was handed a
+ * hole — which is the distinction this whole project is built around.
+ *
  * `escalatedBy` says who decided: `model` when the model itself chose to delegate,
  * `guardrail` when it was stopped. The difference matters for measuring the model
  * instead of measuring the net that contains it — a model the net stops all the time is
@@ -44,11 +50,13 @@ export type Outcome =
   | {
       readonly kind: 'acted';
       readonly proposal: Proposal;
+      readonly facts: CaseFacts;
       readonly verdicts: readonly GuardrailVerdict[];
     }
   | {
       readonly kind: 'escalated';
       readonly proposal: Proposal;
+      readonly facts: CaseFacts;
       readonly verdicts: readonly GuardrailVerdict[];
       readonly escalatedBy: 'model' | 'guardrail';
       /** Every rule that failed. Reported even when the model had already escalated. */

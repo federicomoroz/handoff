@@ -36,32 +36,39 @@ npm run gate                 # exit != 0 blocks the merge
 
 ## The measured numbers
 
-`qwen2.5:3b`, 8 cases × 4 reps against the hostile ERP, recorded in `evals/baseline.json`:
+`qwen2.5:3b`, 24 test cases × 4 reps against the hostile ERP, recorded in
+`evals/baseline.json`:
 
 | | |
 | --- | --- |
-| correct action (the system) | **88%** |
-| sound proposal (the model alone) | **50%** |
-| correct escalation | 100% |
-| grounded evidence | 75% |
-| decisive facts cited | 63% |
-| reckless proposals | 12 of 32 |
+| correct action (the system) | **69%** |
+| sound proposal (the model alone) | **60%** |
+| correct escalation | 77% |
+| grounded evidence | 84% |
+| decisive facts cited | 81% |
+| reckless proposals | 20 of 96 |
 | **unsafe acts executed** | **0** |
-| majority baseline | 50% |
+| majority baseline | 46% |
 | p95 latency | 4.4 s |
 
 Read the first two rows together, because the gap between them is the whole point. The
-model wanted to act on a case that needed a person **twelve times out of thirty-two**.
-The guardrails stopped all twelve. The system is right 88% of the time; the model on its
-own is right 50%, which is exactly what "escalate everything" scores.
+model wanted to act on a case that needed a person **twenty times out of ninety-six**.
+The guardrails stopped all twenty.
 
 That is not a flattering result and it is the honest one. A 3B model running on a 4 GB
 consumer GPU is not a good triage agent. What the project demonstrates is that you can
 know that precisely, and that the net around it holds anyway.
 
-**The noise floor is ±16 points** at 32 trials. Nothing above should be read to two
-significant figures, and the gate's regression tolerance is set at that floor rather than
-tighter, because a gate that fires on chance gets switched off within a week.
+An earlier version of this suite had 8 cases and reported **88%** on the first row. That
+number was not wrong, it was undersampled: adding cases that sit one unit under each
+threshold — 149.900 against a ceiling of 150.000, 71 hours against a limit of 72, two
+claims against a rule that fires at three — took it to 69%. The boundary is where the
+judgement is, and a suite without it measures the easy middle.
+
+**The noise floor is ±9 points** at 96 trials, down from ±16 at 32. That is the concrete
+payoff of the bigger suite: the gate's regression tolerance tracks the floor, so it went
+from 15 points to 10 — stricter because there is more evidence behind it, not because it
+was asked to be.
 
 ## The ERP is the hard part
 
@@ -112,7 +119,9 @@ rather than wiring its own, so the number it reports is about the agent that shi
 **The layering is a test, not a promise.** `tests/architecture.test.ts` fails if the
 domain imports a library, if a port names an adapter, if the simulator reaches into the
 parser, or if anything under `src/` can see `evals/`. It went red the first time an eval
-module imported the ERP seed, which is what it is for.
+module imported the ERP seed, which is what it is for — and the rule was the thing that
+turned out to be wrong, not the import: the eval may stage the foreign system, it may
+not build the agent.
 
 ## The guardrails fail closed
 
@@ -144,9 +153,15 @@ Design rules that each came from a specific failure:
   `errors.jsonl` with a `failure_class` and occupies no scored slot. The null policy
   proves it: its metrics print `—`, not `0%`. A run where the agent never answered has no
   accuracy, and 0% would claim it answered everything wrong.
-- **Both directions.** Four cases must escalate and four must not, and the majority
-  baseline is printed next to the score. A suite of escalate-only cases cannot tell a
-  careful agent from a useless one.
+- **Both directions, and the boundary between them.** 16 of the 36 cases require a
+  person and 20 do not, and the majority baseline is printed next to every score. Pairs
+  of cases sit on either side of each threshold, because a suite that only tests numbers
+  nobody would argue about proves the easy half.
+- **Only three rules actually force an escalation.** `high-value`, `repeat-offender` and
+  `no-order` block every action including asking the customer; the rest leave
+  `request_evidence` open. So most hard cases are not escalations at all — they are the
+  agent resolving something itself for the price of one message, which is the entire
+  economic argument for having it.
 - **The model and the net are scored separately.** `correct action` is the system;
   `sound proposal` is the model before the guardrails. Blending them hides an agent that
   is only ever right because it gets stopped.
@@ -154,6 +169,19 @@ Design rules that each came from a specific failure:
   a typo into a case that still runs, still scores, and claims coverage it does not have.
 - **A metric must be able to fail.** The plan called for a cost ceiling in dollars; on a
   local backend that is always zero, so it is a latency ceiling instead.
+- **Reproducible, and checked rather than assumed.** Profile, seed edits, die and clock
+  are pinned per trial from a hash of `(case_id, rep)`. The smoke policies produced
+  identical numbers on Linux in CI and on Windows locally, and seven consecutive runs of
+  the same configuration starve exactly the same trial. That last check was worth
+  running: the ERP expires its session by counting requests while three reads run in
+  parallel and the backoff waits on real timers, so a result that drifted between runs
+  would have been entirely believable.
+- **A trial that could not test its own premise is not a miss.** When the hostile ERP
+  starves a read of the fact a case turns on — `act-just-under-stale` exists to test 71
+  hours against a limit of 72, and the shipment never arrived — escalating becomes the
+  correct answer while the label still says refund. That trial goes to `errors.jsonl` as
+  `premise_unmet`. It is the project's own rule turned on the eval: "could not be
+  measured" and "measured badly" are different events.
 
 ### The four smoke policies
 

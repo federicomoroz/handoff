@@ -140,8 +140,9 @@ export const SMOKE_EXPECTATIONS: Readonly<
   Record<SmokePolicy, { readonly why: string; readonly holds: (s: SmokeFacts) => boolean }>
 > = {
   oracle: {
-    why: 'scores everything, or the grader and the labels disagree',
-    holds: (s) => s.correctAction === 1 && s.scored === s.trials && s.unsafeActs === 0,
+    why: 'gets every scorable trial right; anything unscored is a declared premise_unmet',
+    holds: (s) =>
+      s.correctAction === 1 && s.unsafeActs === 0 && s.scored + s.premiseUnmet === s.trials,
   },
   null: {
     why: 'produces zero scored rows and classifies every trial as a model failure',
@@ -162,6 +163,8 @@ export interface SmokeFacts {
   readonly trials: number;
   readonly scored: number;
   readonly malformed: number;
+  /** Trials the hostile ERP starved of the fact the case turns on. Not misses. */
+  readonly premiseUnmet: number;
   readonly correctAction: number | null;
   readonly escalationRate: number | null;
   readonly majorityBaseline: number;
