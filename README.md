@@ -168,10 +168,12 @@ Ports and adapters, where each port has a second implementation that actually ex
 
 ```
 ErpPort          the simulated SGC today, a real one the day it exists
-LlmPort          Ollama now; the seam a recorded cassette will use
+LlmPort          Ollama live, recorded cassettes in CI, and four policies
+                 with no model at all
 FactGatherer /   split in two so the eval can replace the JUDGEMENT while leaving
 DecisionMaker    the ERP reads intact — that is what the four smoke policies are
-TriagePort       the eval runner drives it; the HTTP route will be the second caller
+TriagePort       the eval runner drives it today; an HTTP route is the second
+                 caller and is not written yet
 ```
 
 `Transport = (req: Request) => Promise<Response>` is the Fetch API itself. Production
