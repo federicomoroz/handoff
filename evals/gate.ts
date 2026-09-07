@@ -155,15 +155,31 @@ export function evaluateGate(run: RunSummary, baseline: RunSummary): GateRule[] 
   return rules;
 }
 
-/** The most recent run directory, so CI does not have to name one. */
+/**
+ * The most recent finished run of the real backend, so CI does not have to name one.
+ *
+ * Two filters, both of which came from watching it pick the wrong thing. A directory
+ * with no `summary.json` is a run still being written, and gating one crashes on a file
+ * that does not exist yet. And a run id ending in a policy name is a smoke run — gating
+ * the constant-refund policy against the model's baseline is never what "run the gate"
+ * meant, and it fails for reasons that say nothing about the code being merged.
+ *
+ * Pass `--run` to gate a specific directory, including a smoke one. That is how the four
+ * policies were checked against the gate in the first place.
+ */
 export function latestRun(root: string): string {
   if (!existsSync(root)) throw new Error(`no runs in ${root} — run the evals first`);
-  const runs = readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+
+  const finished = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name.endsWith('-model'))
     .map((entry) => entry.name)
+    .filter((name) => existsSync(join(root, name, 'summary.json')))
     .sort();
-  const last = runs.at(-1);
-  if (!last) throw new Error(`no runs in ${root} — run the evals first`);
+
+  const last = finished.at(-1);
+  if (!last) {
+    throw new Error(`no finished model runs in ${root} — run \`npm run evals\` first`);
+  }
   return join(root, last);
 }
 

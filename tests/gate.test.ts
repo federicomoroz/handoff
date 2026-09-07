@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { evaluateGate } from '../evals/gate';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { evaluateGate, latestRun } from '../evals/gate';
 import type { RunSummary } from '../evals/grade';
 
 /**
@@ -151,5 +154,46 @@ describe('the gate', () => {
   it('marks each rule as absolute or regression, because they are different claims', () => {
     const kinds = new Set(evaluateGate(HEALTHY, HEALTHY).map((rule) => rule.kind));
     expect(kinds).toEqual(new Set(['absolute', 'regression']));
+  });
+});
+
+describe('choosing which run to gate', () => {
+  /** Lays out run directories the way the runner does, some of them unfinished. */
+  function results(runs: ReadonlyArray<[string, boolean]>): string {
+    const root = mkdtempSync(join(tmpdir(), 'handoff-gate-'));
+    for (const [name, finished] of runs) {
+      mkdirSync(join(root, name));
+      if (finished) writeFileSync(join(root, name, 'summary.json'), '{}');
+    }
+    return root;
+  }
+
+  it('ignores a run that is still being written', () => {
+    // This one bit for real: a smoke run was still writing when the gate went looking
+    // for the newest directory, and it crashed on a summary.json that did not exist yet.
+    const root = results([
+      ['2026-09-07T07-00-00Z-model', true],
+      ['2026-09-07T08-00-00Z-model', false],
+    ]);
+
+    expect(latestRun(root)).toContain('07-00-00Z-model');
+  });
+
+  it('ignores smoke runs, which are never what "run the gate" meant', () => {
+    // Gating the constant-refund policy against the model's baseline fails for reasons
+    // that say nothing at all about the code being merged.
+    const root = results([
+      ['2026-09-07T07-00-00Z-model', true],
+      ['2026-09-07T08-00-00Z-constant-refund', true],
+      ['2026-09-07T09-00-00Z-oracle', true],
+    ]);
+
+    expect(latestRun(root)).toContain('07-00-00Z-model');
+  });
+
+  it('says so plainly when there is nothing to gate', () => {
+    expect(() => latestRun(results([['2026-09-07T07-00-00Z-oracle', true]]))).toThrow(
+      /no finished model runs/,
+    );
   });
 });
