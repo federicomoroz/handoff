@@ -32,13 +32,16 @@ facts are enough, the amount is small and the customer has no claims, decide you
 FACTS USED
 `facts_used` must never be empty. List the exact paths of the facts you based your
 decision on, copied from the list you were given. Paths only, no values. Do not invent
-paths. Anything absent goes in `missing_facts`, never in `facts_used`. Example:
+paths. Anything absent goes in `missing_facts`, never in `facts_used`.
+ Example:
 
   "facts_used": ["shipment.state", "history.claims_90d"]
 
 FORMAT
 - `confidence_pct`: integer from 0 to 100
-- `amount_pesos`: in pesos, not cents. Use 0 when the action carries no amount
+- `amount_pesos`: in pesos, not cents. A refund ALWAYS carries the amount you are
+  returning, normally `order.total`; a refund of 0 is not a refund. Every other action
+  carries 0.
 - `reason`: one short sentence
 
 Call `record_decision` now. Write nothing else.

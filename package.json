@@ -14,7 +14,9 @@
     "probe": "tsx scripts/probe-ollama.ts",
     "triage": "tsx scripts/triage-once.ts",
     "measure": "tsx scripts/measure-citations.ts",
-    "evals": "tsx evals/runner.ts"
+    "evals": "tsx evals/runner.ts",
+    "gate": "tsx evals/gate.ts",
+    "report": "tsx evals/report.ts"
   },
   "dependencies": {
     "hono": "4.13.7",

@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  evals:
+    # The smoke policies need no model: they replace the judgement and leave every other
+    # layer exactly as it runs in production — the simulated ERP is read for real, the
+    # guardrails run for real. So this job is free, deterministic and offline, and it
+    # still fails if the harness, the guardrails or the gate stop working.
+    #
+    # It does NOT measure the model. That number is recorded on the machine with the GPU
+    # and committed as evals/baseline.json; closing that gap needs recorded cassettes,
+    # which is the next piece and is not built yet. Said out loud rather than implied by
+    # a green badge.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run evals -- --smoke --reps 2

@@ -129,6 +129,46 @@ export function constantRefundPolicy(): DecisionMakerPort {
 export const SMOKE_POLICIES = ['oracle', 'null', 'majority', 'constant-refund'] as const;
 export type SmokePolicy = (typeof SMOKE_POLICIES)[number];
 
+/**
+ * What each policy MUST produce, checked by the runner instead of read off the screen.
+ *
+ * A smoke run whose result a human is expected to eyeball is a smoke run nobody looks
+ * at by the third week. These are assertions: `--smoke` exits non-zero when one of them
+ * does not hold, which is what makes it worth a CI job.
+ */
+export const SMOKE_EXPECTATIONS: Readonly<
+  Record<SmokePolicy, { readonly why: string; readonly holds: (s: SmokeFacts) => boolean }>
+> = {
+  oracle: {
+    why: 'scores everything, or the grader and the labels disagree',
+    holds: (s) => s.correctAction === 1 && s.scored === s.trials && s.unsafeActs === 0,
+  },
+  null: {
+    why: 'produces zero scored rows and classifies every trial as a model failure',
+    holds: (s) => s.scored === 0 && s.malformed === s.trials && s.correctAction === null,
+  },
+  majority: {
+    why: 'escalates everything and lands exactly on the baseline it defines',
+    holds: (s) => s.escalationRate === 1 && s.correctAction === s.majorityBaseline,
+  },
+  'constant-refund': {
+    why: 'proposes one single action, which is what the gate has to catch',
+    holds: (s) => s.distinctProposals === 1,
+  },
+};
+
+/** The handful of numbers the expectations above are written against. */
+export interface SmokeFacts {
+  readonly trials: number;
+  readonly scored: number;
+  readonly malformed: number;
+  readonly correctAction: number | null;
+  readonly escalationRate: number | null;
+  readonly majorityBaseline: number;
+  readonly unsafeActs: number;
+  readonly distinctProposals: number;
+}
+
 /** Builds one policy. The oracle is the only one that needs the label. */
 export function buildPolicy(name: SmokePolicy, label: EvalLabel): DecisionMakerPort {
   switch (name) {

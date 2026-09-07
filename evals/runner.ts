@@ -14,6 +14,7 @@ import {
 import { joinCases, loadCases, loadLabels, toIncident, type LabelledCase } from './case';
 import { applySeedOverrides } from './seed-overrides';
 import {
+  citationPrecision,
   effectiveAction,
   grade,
   summarise,
@@ -21,7 +22,13 @@ import {
   type RunSummary,
   type TrialRow,
 } from './grade';
-import { buildPolicy, SMOKE_POLICIES, type SmokePolicy } from './policies';
+import {
+  buildPolicy,
+  SMOKE_EXPECTATIONS,
+  SMOKE_POLICIES,
+  type SmokeFacts,
+  type SmokePolicy,
+} from './policies';
 
 /**
  * The eval runner: one primary adapter over the same use case the HTTP route drives.
@@ -135,12 +142,14 @@ async function runTrial(
         ...common,
         status: 'ok',
         action: effectiveAction(outcome),
+        proposed_action: outcome.proposal.action,
         escalated_by: outcome.kind === 'escalated' ? outcome.escalatedBy : null,
         blocked_by: outcome.kind === 'escalated' ? outcome.blockedBy : [],
         confidence: outcome.proposal.confidence,
         evidence: outcome.proposal.evidence,
         missing_facts: outcome.proposal.missingFacts,
         metrics,
+        citation_precision: citationPrecision(outcome, label),
         duration_ms: Date.now() - startedAt,
       },
       // Everything needed to argue with the result later, including what the grader was
@@ -242,9 +251,11 @@ export function printSummary(summary: RunSummary): void {
   console.log(`  correct escalation    ${pct(summary.metrics.correct_escalation)}`);
   console.log(`  grounded evidence     ${pct(summary.metrics.grounded_evidence)}`);
   console.log(`  decisive facts cited  ${pct(summary.metrics.decisive_facts_cited)}`);
+  console.log(`  citation precision    ${pct(summary.citation_precision)}`);
   console.log(`  escalation rate       ${pct(summary.escalation_rate)}`);
   console.log(`  majority baseline     ${pct(summary.majority_baseline)}`);
-  console.log(`  wrongful actions      ${summary.wrongful_actions}`);
+  console.log(`  reckless proposals    ${summary.wrongful_actions}   (model)`);
+  console.log(`  unsafe acts EXECUTED  ${summary.unsafe_acts}   (system — gate blocks on any)`);
   if (failures.length > 0) {
     console.log(`  failures              ${failures.map(([k, n]) => `${k}=${n}`).join(', ')}`);
   }
@@ -271,13 +282,47 @@ function parseArgs(argv: readonly string[]): { options: RunOptions; smoke: boole
   };
 }
 
+const smokeFacts = (summary: RunSummary): SmokeFacts => ({
+  trials: summary.trials,
+  scored: summary.scored,
+  malformed: summary.failures.malformed,
+  correctAction: summary.metrics.correct_action,
+  escalationRate: summary.escalation_rate,
+  majorityBaseline: summary.majority_baseline,
+  unsafeActs: summary.unsafe_acts,
+  distinctProposals: Object.values(summary.proposed_actions).filter((n) => n > 0).length,
+});
+
+/**
+ * Runs the four policies and CHECKS them, rather than printing four tables for someone
+ * to read. It is the harness testing itself, and it needs no model, so CI can run it on
+ * every push for free and deterministically.
+ */
+async function runSmoke(options: RunOptions): Promise<boolean> {
+  const verdicts: string[] = [];
+  let allHeld = true;
+
+  for (const policy of SMOKE_POLICIES) {
+    const summary = await runEval({ ...options, policy });
+    printSummary(summary);
+
+    const expectation = SMOKE_EXPECTATIONS[policy];
+    const held = expectation.holds(smokeFacts(summary));
+    allHeld &&= held;
+    verdicts.push(`  ${held ? 'PASS' : 'FAIL'}  ${policy.padEnd(16)} ${expectation.why}`);
+  }
+
+  console.log('\n\nsmoke expectations');
+  for (const line of verdicts) console.log(line);
+  console.log(allHeld ? '\nthe harness checks out\n' : '\nTHE HARNESS IS WRONG\n');
+  return allHeld;
+}
+
 async function main(): Promise<void> {
   const { options, smoke } = parseArgs(process.argv.slice(2));
 
   if (smoke) {
-    for (const policy of SMOKE_POLICIES) {
-      printSummary(await runEval({ ...options, policy }));
-    }
+    if (!(await runSmoke(options))) process.exitCode = 1;
     return;
   }
 
