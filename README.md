@@ -2,16 +2,31 @@
 
 [![ci](https://github.com/federicomoroz/handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/federicomoroz/handoff/actions/workflows/ci.yml)
 
-An incident triage agent that works against a legacy ERP it does not control, with hard
-guardrails and an eval suite that blocks the merge when the agent gets worse.
+A customer writes in saying their order arrived broken. To answer them, someone has to
+look up the order, the shipment, how many times that customer has claimed before, and
+whatever the warehouse wrote down — four reads against an old system that answers badly —
+and only then decide: send a replacement, refund, ask the customer for a photo, or hand
+the case to a person.
 
-A customer reports a package that arrived damaged, late or not at all. The agent reads
-the order, the shipment, the customer's history and the order notes out of `SGC` — a
-simulated Argentine ERP that lies, expires its own sessions and answers 429 — and then
-chooses one of four things: reship, refund, ask the customer for evidence, or hand the
-case to a person.
+**handoff does those four reads and proposes the decision. Eleven rules review that
+proposal before it happens, and they are what stop it moving money when the facts do not
+support it.**
 
-The interesting part is not the choice. It is the three sentences underneath it:
+Across 96 test cases it handled **83%** the way it should have. It tried to move money on
+a case that needed a person **19 times**. It got through **zero** times.
+
+## What it is for
+
+An e-commerce operation taking claims all day. The work is not hard: it is repetitive,
+spread across four screens, and getting it wrong costs money. So the job is not only to
+do it faster — it is to never refund on facts that do not support it, which is where most
+of this project went.
+
+The ERP it reads is simulated, and it is built to misbehave in ten specific ways taken
+from real integrations. Everything with exactly one correct answer is resolved in code;
+only the judgement reaches the model.
+
+Three claims, each of which is a number further down:
 
 1. **The interesting engineering is in someone else's system.** Ten specific hostilities,
    all resolved in the adapter, none of them shown to the model.
