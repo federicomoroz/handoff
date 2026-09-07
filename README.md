@@ -43,18 +43,18 @@ npm run report                         # report.md for the last run
 | | |
 | --- | --- |
 | correct action (the system) | **83%** |
-| sound proposal (the model alone) | **71%** |
-| correct escalation | 87% |
-| grounded evidence | 84% |
-| decisive facts cited | 84% |
-| reckless proposals | 20 of 96 |
+| sound proposal (the model alone) | **67%** |
+| correct escalation | 83% |
+| grounded evidence | 96% |
+| decisive facts cited | 92% |
+| reckless proposals | 19 of 96 |
 | **unsafe acts executed** | **0** |
 | majority baseline | 46% |
 | p95 latency | 4.4 s |
 
 Read the first two rows together, because the gap between them is the whole point. The
-model wanted to act on a case that needed a person **twenty times out of ninety-six**.
-The guardrails stopped all twenty.
+model wanted to act on a case that needed a person **19 times out of
+96**. The guardrails stopped every one.
 
 That is not a flattering result and it is the honest one. A 3B model running on a 4 GB
 consumer GPU is not a good triage agent. What the project demonstrates is that you can
