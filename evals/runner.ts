@@ -6,7 +6,7 @@ import { seededDraw } from '../src/external-mocks/draw';
 import { TraceRecorder } from '../src/domain/trace';
 import { presentFactPaths } from '../src/domain/facts';
 import { ErpUnavailableError } from '../src/ports/erp';
-import { LlmUnavailableError } from '../src/ports/llm';
+import { LlmUnavailableError, type LlmPort } from '../src/ports/llm';
 import {
   MalformedDecisionError,
   TruncatedDecisionError,
@@ -14,6 +14,7 @@ import {
 } from '../src/ports/triage';
 import { joinCases, loadCases, loadLabels, toIncident, type LabelledCase } from './case';
 import { applySeedOverrides } from './seed-overrides';
+import { CassetteMissingError, recordingLlm, replayLlm } from './cassette-llm';
 import {
   citationPrecision,
   effectiveAction,
@@ -54,12 +55,28 @@ import {
 const CASE_FILES = ['evals/cases/escalate.jsonl', 'evals/cases/act.jsonl'];
 const LABEL_FILE = 'evals/labels.jsonl';
 
+/**
+ * The backend a replay claims to be, checked against what each cassette recorded.
+ *
+ * Written out rather than derived, because a replay must not silently follow a change of
+ * default backend: the cassettes were recorded from one model and the run has to say so.
+ */
+const DEFAULT_REPLAY_ID = 'ollama:qwen2.5:3b';
+
 export interface RunOptions {
   readonly split: string;
   readonly reps: number;
   readonly outDir: string;
   /** A smoke policy, or `null` to run the backend the composition root chooses. */
   readonly policy: SmokePolicy | null;
+  /**
+   * `record` calls the real backend and writes what it said; `replay` answers from disk
+   * and refuses when the recording is stale; `live` does neither.
+   */
+  readonly cassettes: 'record' | 'replay' | 'live';
+  /** The backend a replay claims to be. Checked against what the cassette recorded. */
+  readonly replayId: string;
+  readonly cassetteDir: string;
 }
 
 /**
@@ -91,6 +108,9 @@ function classify(error: unknown): { failure_class: FailureClass; message: strin
   if (error instanceof ErpUnavailableError) {
     return { failure_class: 'erp_unavailable', message: error.message };
   }
+  if (error instanceof CassetteMissingError) {
+    return { failure_class: 'cassette_missing', message: error.message };
+  }
   // Anything unrecognised is the harness's own fault until proven otherwise. Filing it
   // under a model failure would let a bug in here quietly lower the model's score.
   return {
@@ -113,13 +133,26 @@ async function runTrial(
     ? buildPolicy(options.policy, label)
     : undefined;
 
+  // The seed lives in the backend rather than in the request, so it is what tells two
+  // repetitions of one case apart on disk.
+  const cassettes = { dir: options.cassetteDir, variant: String(rep) };
+  const model =
+    options.cassettes === 'replay'
+      ? { llm: replayLlm(options.replayId, cassettes) }
+      : {
+          // A repetition that does not vary the model seed counts one run several times:
+          // at temperature 0 the same seed returns the same answer.
+          llmSeed: rep,
+          ...(options.cassettes === 'record'
+            ? { wrapLlm: (llm: LlmPort) => recordingLlm(llm, cassettes) }
+            : {}),
+        };
+
   const stack = buildTriageStack({
     profile: evalCase.erp_profile === 'sgc_hostile' ? SGC_HOSTILE : SGC_TAME,
     seed: applySeedOverrides(evalCase.erp_seed_overrides),
     draw: seededDraw(trialSeed(evalCase.case_id, rep)),
-    // A repetition that does not vary the model seed counts one run several times: at
-    // temperature 0 the same seed returns the same answer.
-    ...(decider ? { decider } : { llmSeed: rep }),
+    ...(decider ? { decider } : model),
   });
 
   const tracer = new TraceRecorder();
@@ -311,6 +344,9 @@ function parseArgs(argv: readonly string[]): { options: RunOptions; smoke: boole
   if (policy !== undefined && !SMOKE_POLICIES.includes(policy as SmokePolicy)) {
     throw new Error(`unknown policy "${policy}" — one of ${SMOKE_POLICIES.join(', ')}`);
   }
+  if (argv.includes('--record') && argv.includes('--replay')) {
+    throw new Error('--record and --replay are opposites; pass one');
+  }
 
   return {
     smoke: argv.includes('--smoke'),
@@ -319,6 +355,9 @@ function parseArgs(argv: readonly string[]): { options: RunOptions; smoke: boole
       reps: Number(value('--reps') ?? '1'),
       outDir: value('--out') ?? 'evals/results',
       policy: (policy as SmokePolicy | undefined) ?? null,
+      cassettes: argv.includes('--record') ? 'record' : argv.includes('--replay') ? 'replay' : 'live',
+      replayId: value('--replay-id') ?? DEFAULT_REPLAY_ID,
+      cassetteDir: value('--cassettes') ?? 'evals/cassettes',
     },
   };
 }
@@ -368,7 +407,21 @@ async function main(): Promise<void> {
     return;
   }
 
-  printSummary(await runEval(options));
+  const summary = await runEval(options);
+  printSummary(summary);
+
+  // A stale recording stops the run instead of lowering a score. This is the whole point
+  // of hashing the request: change the prompt and CI goes red asking for a re-record,
+  // which is also what updates the baseline.
+  if (summary.failures.cassette_missing > 0) {
+    console.error(
+      `
+${summary.failures.cassette_missing} trial(s) had no recording. The request changed.
+` +
+        'Re-record: npm run evals -- --record --split ' + options.split + ' --reps ' + options.reps,
+    );
+    process.exitCode = 1;
+  }
 }
 
 // Only when run as a script: importing this from a test must not start a run.

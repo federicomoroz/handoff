@@ -26,12 +26,13 @@ Everything runs locally and costs nothing: the model is `qwen2.5:3b` on Ollama.
 
 ```bash
 npm ci
-npm run typecheck            # tsc --noEmit, strict + noUncheckedIndexedAccess
-npm test                     # no network, no model, no GPU
-npm run evals -- --smoke     # the four smoke policies check the harness, offline
-npm run evals -- --reps 4    # the real model, needs Ollama on :11434
-npm run report               # report.md for the last run
-npm run gate                 # exit != 0 blocks the merge
+npm run typecheck                      # tsc --noEmit, strict + noUncheckedIndexedAccess
+npm test                               # no network, no model, no GPU
+npm run evals -- --smoke               # the four smoke policies check the harness, offline
+npm run evals -- --replay --reps 4     # the model, from recordings. No GPU needed
+npm run gate                           # exit != 0 blocks the merge
+npm run evals -- --record --reps 4     # re-record; needs Ollama on :11434
+npm run report                         # report.md for the last run
 ```
 
 ## The measured numbers
@@ -41,11 +42,11 @@ npm run gate                 # exit != 0 blocks the merge
 
 | | |
 | --- | --- |
-| correct action (the system) | **82%** |
-| sound proposal (the model alone) | **69%** |
-| correct escalation | 88% |
-| grounded evidence | 82% |
-| decisive facts cited | 82% |
+| correct action (the system) | **83%** |
+| sound proposal (the model alone) | **71%** |
+| correct escalation | 87% |
+| grounded evidence | 84% |
+| decisive facts cited | 84% |
 | reckless proposals | 20 of 96 |
 | **unsafe acts executed** | **0** |
 | majority baseline | 46% |
@@ -247,13 +248,13 @@ Design rules that each came from a specific failure:
   narrower: "would re-running this same commit give a different number?" Against a
   deterministic local backend, almost not at all. Setting the gate by the first number
   would make it blind; setting the README by the second would make it overconfident.
-- **Reproducible, and checked rather than assumed.** Profile, seed edits, die and clock
-  are pinned per trial from a hash of `(case_id, rep)`. The smoke policies produced
-  identical numbers on Linux in CI and on Windows locally, and seven consecutive runs of
-  the same configuration starve exactly the same trial. That last check was worth
-  running: the ERP expires its session by counting requests while three reads run in
-  parallel and the backoff waits on real timers, so a result that drifted between runs
-  would have been entirely believable.
+- **Reproducible, and it took a broken run to actually be.** Profile, seed edits, die and
+  clock are pinned per trial from a hash of `(case_id, rep)`, and seven consecutive runs
+  agreed — which was not enough. The die was a shared sequence and the ERP is read
+  concurrently, so the numbers were only stable while the timing was. Adding the
+  cassette recorder's disk writes was enough to change which trial got starved. Keyed by
+  request instead of by position, it is now order-independent, and a recording plus three
+  replays match to the decimal.
 - **A trial that could not test its own premise is not a miss.** When the hostile ERP
   starves a read of the fact a case turns on — `act-just-under-stale` exists to test 71
   hours against a limit of 72, and the shipment never arrived — escalating becomes the
@@ -300,20 +301,51 @@ would demand a perfect model, and a gate nobody can pass is a gate somebody turn
 `tests/gate.test.ts` exercises every rule from both sides on synthetic summaries, in
 milliseconds, with no model.
 
-## What CI does and does not cover
+## What CI does
 
-Two jobs, both free and offline:
+Two jobs, both free and offline. No GPU, no API key, no bill.
 
 - `tests` — typecheck and the whole suite.
-- `evals` — the four smoke policies, self-checking. The simulated ERP is read for real
-  and the guardrails run for real, so this fails if the harness, the guardrails or the
-  gate break.
+- `evals` — the four smoke policies, then the model itself from recordings, then the
+  gate. A regression in the agent's judgement stops the merge the same way a failing
+  test does.
 
-**CI does not measure the model.** That number is recorded on the machine with the GPU and
-committed as `evals/baseline.json`. Closing the gap needs recorded cassettes keyed by a
-hash of the request — so that changing the prompt, the tools or the model makes the hash
-miss and forces a re-record, while a pure refactor replays for free. That is the next
-piece and it is not built yet.
+### Why replaying is not cheating
+
+A cassette is named by a SHA-256 of the entire request: model, seed, system prompt,
+rendered facts, tool schema, token ceiling. So:
+
+- a change that **cannot** affect the model — a refactor, a rename, a new test — replays
+  for free on every push;
+- a change that **can** — one word in the prompt, a field in the tool schema, a different
+  model — makes every hash miss, and CI exits 1 asking for a re-record. Re-recording is
+  what updates the baseline.
+
+The model is therefore measured on every change that could move it, and paid for on none
+of the changes that could not. A stub answers the same thing however the prompt changes;
+this refuses to answer at all. Verified both ways: appending one sentence to the prompt
+turned all 48 recordings missing and the run red; removing it turned them green again.
+
+It rests on the prompt being byte-identical between recording and replay, which is a
+property of the ERP simulation being deterministic. **That did not hold at first**, and
+finding out is the reason this works now. See below.
+
+### The die is keyed, not sequential
+
+The simulated ERP used to draw its hostilities from a shared sequence — each call pulled
+the next number. The agent reads the shipment, the history and the notes concurrently.
+Their arrival order is fixed, but the order they RESUME in, after a simulated latency or
+a retry backoff on real timers, is not. So on a busier machine a different read would be
+the one that ran out of attempts.
+
+It stayed hidden through seven consecutive identical runs, and surfaced the moment the
+recorder added disk writes: the recording and its replay starved different trials, and a
+cassette came up missing. The fix is that every hostility now draws on a key built from
+the request and its attempt number, and the session budget is per endpoint rather than
+one counter three parallel reads race for. Concurrency can no longer change what any
+single request gets.
+
+Recorded once, replayed three times: identical to the decimal on every metric.
 
 ## Stack
 

@@ -139,6 +139,14 @@ export type FailureClass =
    * "could not be measured" and "measured badly" are different events.
    */
   | 'premise_unmet'
+  /**
+   * The recording for this request does not exist, because the request changed.
+   *
+   * Its own class so it can stop the run rather than blend into a score. An eval that
+   * quietly skipped every trial whose prompt had changed would report a clean sheet for
+   * exactly the change that most needed measuring.
+   */
+  | 'cassette_missing'
   /** Anything else, which almost always means a bug in the harness. */
   | 'harness_error';
 
@@ -267,6 +275,7 @@ export function summarise(
     llm_unavailable: 0,
     erp_unavailable: 0,
     premise_unmet: 0,
+    cassette_missing: 0,
     harness_error: 0,
   };
   for (const row of rows) {

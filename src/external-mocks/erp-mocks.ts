@@ -35,8 +35,35 @@ export interface MocksOptions {
 
 export function buildMocksApp({ profile, seed, draw = systemDraw }: MocksOptions): Hono {
   const state = cloneSeed(seed ?? BASE_SEED);
-  /** token -> calls remaining. `Infinity` when the profile never expires sessions. */
+  /**
+   * `token|path` -> calls remaining. `Infinity` when the profile never expires sessions.
+   *
+   * Per endpoint rather than per token, and that is the point. A single budget shared by
+   * the shipment, the history and the notes — which go out together — is a race: whoever
+   * arrives last takes the 401, and after a retry backoff on real timers "last" is not
+   * always the same one. The adapter's job is unchanged (a 401 arrives mid-batch and it
+   * must re-login without losing the request); what changes is that WHICH request gets
+   * it no longer depends on the machine's mood.
+   */
   const sessions = new Map<string, number>();
+  /**
+   * `requestKey` -> attempts so far, so the die can be told them apart.
+   *
+   * A keyed die returns the same number for the same key, so a retried request would
+   * draw the same 429 forever. Retries of one request are strictly sequential — the
+   * adapter awaits its backoff before trying again — so counting them here is safe in a
+   * way that counting all requests is not.
+   */
+  const attempts = new Map<string, number>();
+  /**
+   * Tokens this app issued.
+   *
+   * Needed because the per-endpoint budget is allocated lazily, on first use: without a
+   * record of what was handed out, any well-formed token would be honoured — including
+   * one from another instance, which would quietly share state between eval trials that
+   * are supposed to be independent.
+   */
+  const issuedTokens = new Set<string>();
   let issued = 0;
 
   const app = new Hono();
@@ -44,14 +71,24 @@ export function buildMocksApp({ profile, seed, draw = systemDraw }: MocksOptions
   // --- Cross-cutting, once: latency, session, quota and truncation. ----------------
 
   app.use('*', async (c, next) => {
-    await sleep(jitter(profile.latencyMs, draw));
+    // Everything this request draws is keyed on the request and its attempt number, so
+    // two reads racing each other cannot swap outcomes.
+    const request = `${c.req.method} ${c.req.path}?${new URL(c.req.url).searchParams}`;
+    const attempt = (attempts.get(request) ?? 0) + 1;
+    attempts.set(request, attempt);
+    const key = (what: string): string => `${request}#${attempt}#${what}`;
 
-    if (c.req.path !== '/sgc/auth' && !consumeSession(sessions, c.req.header('X-SGC-Token'))) {
+    await sleep(jitter(profile.latencyMs, draw, key('latency')));
+
+    if (
+      c.req.path !== '/sgc/auth' &&
+      !consumeSession(sessions, issuedTokens, c.req.header('X-SGC-Token'), c.req.path, profile)
+    ) {
       // Hostility 2: the token runs out mid-batch, not at the start.
       return c.json({ error: 'sesion vencida o inexistente' }, 401);
     }
 
-    if (draw() < profile.rateLimitProbability) {
+    if (draw(key('rate')) < profile.rateLimitProbability) {
       // Hostility 3: `Retry-After` in seconds or as an HTTP date, per the profile.
       const retryAfter = profile.retryAfterAsHttpDate
         ? new Date(Date.now() + profile.retryAfterSeconds * 1000).toUTCString()
@@ -62,7 +99,7 @@ export function buildMocksApp({ profile, seed, draw = systemDraw }: MocksOptions
     await next();
 
     // Hostility 4: 200 with a cut body. The status lies and the JSON blows up.
-    if (c.res.status === 200 && draw() < profile.truncationProbability) {
+    if (c.res.status === 200 && draw(key('truncate')) < profile.truncationProbability) {
       const body = await c.res.clone().text();
       const cut = body.slice(0, Math.max(1, Math.floor(body.length * TRUNCATION_KEEP)));
       c.res = new Response(cut, { status: 200, headers: c.res.headers });
@@ -74,7 +111,8 @@ export function buildMocksApp({ profile, seed, draw = systemDraw }: MocksOptions
   app.post('/sgc/auth', (c) => {
     issued += 1;
     const token = `sess-${issued}`;
-    sessions.set(token, profile.sessionMaxCalls === 0 ? Infinity : profile.sessionMaxCalls);
+    // The per-endpoint budget is allocated lazily on first use — see `sessions`.
+    issuedTokens.add(token);
     return c.json({ token, expira_en: 900 });
   });
 
@@ -93,7 +131,7 @@ export function buildMocksApp({ profile, seed, draw = systemDraw }: MocksOptions
         tag('total', order.total) +
         tag('fecha', formatDate(order.fecha, profile.dateFormats.order)) +
         tag('cliente_doc', order.cliente_doc) +
-        tag('guia', order.guia ?? String(renderNull(profile, draw) ?? '')) +
+        tag('guia', order.guia ?? String(renderNull(profile, draw, `${order.nro}.guia`) ?? '')) +
         '</pedido>',
     );
     return c.body(body, 200, { 'Content-Type': 'application/xml; charset=utf-8' });
@@ -109,10 +147,10 @@ export function buildMocksApp({ profile, seed, draw = systemDraw }: MocksOptions
       transportista: shipment.transportista,
       promesa: shipment.promesa
         ? formatDate(shipment.promesa, profile.dateFormats.shipment)
-        : renderNull(profile, draw),
+        : renderNull(profile, draw, `${shipment.guia}.promesa`),
       ultimo_evento: shipment.ultimo_evento
         ? formatDate(shipment.ultimo_evento, profile.dateFormats.shipment)
-        : renderNull(profile, draw),
+        : renderNull(profile, draw, `${shipment.guia}.ultimo_evento`),
     });
   });
 
@@ -164,26 +202,39 @@ export function buildMocksApp({ profile, seed, draw = systemDraw }: MocksOptions
 
 // --- Helpers ---------------------------------------------------------------------
 
-function consumeSession(sessions: Map<string, number>, token: string | undefined): boolean {
-  if (!token) return false;
-  const left = sessions.get(token);
-  if (left === undefined || left <= 0) return false;
-  sessions.set(token, left - 1);
+function consumeSession(
+  sessions: Map<string, number>,
+  issuedTokens: ReadonlySet<string>,
+  token: string | undefined,
+  path: string,
+  profile: ErpProfile,
+): boolean {
+  if (!token || !issuedTokens.has(token)) return false;
+
+  const slot = `${token}|${path}`;
+  const left = sessions.get(slot) ?? (profile.sessionMaxCalls === 0 ? Infinity : profile.sessionMaxCalls);
+  if (left <= 0) return false;
+  sessions.set(slot, left - 1);
   return true;
 }
 
-function jitter([min, max]: readonly [number, number], draw: Draw): number {
-  return min === max ? min : min + draw() * (max - min);
+function jitter([min, max]: readonly [number, number], draw: Draw, key: string): number {
+  return min === max ? min : min + draw(key) * (max - min);
 }
 
 const sleep = (ms: number): Promise<void> =>
   ms <= 0 ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Hostility 5: rotates through the profile's shapes of "no value". */
-function renderNull(profile: ErpProfile, draw: Draw): string | null | undefined {
+/**
+ * Hostility 5: rotates through the profile's shapes of "no value".
+ *
+ * Keyed on the field it is rendering, so the same absent value looks the same however
+ * many times it is read and whatever else was read alongside it.
+ */
+function renderNull(profile: ErpProfile, draw: Draw, key: string): string | null | undefined {
   const styles = profile.nullStyles;
   if (styles.length === 0) return null;
-  return styles[Math.min(styles.length - 1, Math.floor(draw() * styles.length))];
+  return styles[Math.min(styles.length - 1, Math.floor(draw(key) * styles.length))];
 }
 
 /** Hostility 8: three formats, and the two readable ones carry no timezone. */

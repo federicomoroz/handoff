@@ -18,15 +18,15 @@ jobs:
       - run: npm test
 
   evals:
-    # The smoke policies need no model: they replace the judgement and leave every other
-    # layer exactly as it runs in production — the simulated ERP is read for real, the
-    # guardrails run for real. So this job is free, deterministic and offline, and it
-    # still fails if the harness, the guardrails or the gate stop working.
+    # Two things, both free and offline.
     #
-    # It does NOT measure the model. That number is recorded on the machine with the GPU
-    # and committed as evals/baseline.json; closing that gap needs recorded cassettes,
-    # which is the next piece and is not built yet. Said out loud rather than implied by
-    # a green badge.
+    # The smoke policies replace the judgement and leave every other layer exactly as it
+    # runs in production — the simulated ERP is read for real, the guardrails run for
+    # real — so they fail if the harness, the guardrails or the gate stop working.
+    #
+    # Then the model itself, from recordings, gated against the committed baseline. No
+    # GPU, no API key, no bill, and a regression in the agent's judgement stops the merge
+    # the same way a failing test does.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -40,3 +40,12 @@ jobs:
       # themselves are fixed. This job exists to prove the harness still works, not to
       # accumulate statistical power.
       - run: npm run evals -- --smoke --reps 1
+
+      # The model, from recordings. The cassette is named by a hash of the whole request
+      # — model, seed, system prompt, rendered facts, tool schema, token ceiling — so a
+      # change to any of them makes the recording missing and this step exits 1 asking
+      # for a re-record. A refactor that cannot affect the model replays for free.
+      #
+      # This is what makes the gate below a real gate rather than a local ritual.
+      - run: npm run evals -- --replay --split test --reps 4
+      - run: npm run gate

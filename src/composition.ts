@@ -68,6 +68,16 @@ export interface StackOptions {
    * the seed", and this file stays the only place that decides what the backend is.
    */
   readonly llmSeed?: number;
+  /**
+   * Decorates whatever backend this file chose, without the caller naming it.
+   *
+   * The eval needs to wrap the model in a recorder or replace it with a cassette, and it
+   * must do that WITHOUT importing an adapter — otherwise the runner starts assembling
+   * the agent, which is the one thing it is not allowed to do. So it hands in a wrapper
+   * and this file decides what gets wrapped. The seam stays here; the decoration is the
+   * caller's.
+   */
+  readonly wrapLlm?: (llm: LlmPort) => LlmPort;
   /** Replaces the judgement entirely. This is how the oracle and null policies get in. */
   readonly decider?: DecisionMakerPort;
 }
@@ -79,6 +89,7 @@ export function buildTriageStack({
   erpTransport,
   llm,
   llmSeed,
+  wrapLlm,
   decider,
 }: StackOptions = {}): TriageStack {
   // Silently ignoring one of the two would let an eval believe it varied the model
@@ -93,8 +104,8 @@ export function buildTriageStack({
 
   const erp = buildSgcErpAdapter(new SgcSession(transport));
   const gatherer = buildErpFactGatherer(erp);
-  const resolvedDecider =
-    decider ?? buildLlmDecisionMaker(llm ?? buildOllamaLlm(llmSeed === undefined ? {} : { seed: llmSeed }));
+  const backend = llm ?? buildOllamaLlm(llmSeed === undefined ? {} : { seed: llmSeed });
+  const resolvedDecider = decider ?? buildLlmDecisionMaker(wrapLlm ? wrapLlm(backend) : backend);
 
   return {
     triage: buildTriageUseCase({ gatherer, decider: resolvedDecider }),
