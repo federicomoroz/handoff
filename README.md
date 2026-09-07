@@ -172,8 +172,8 @@ LlmPort          Ollama live, recorded cassettes in CI, and four policies
                  with no model at all
 FactGatherer /   split in two so the eval can replace the JUDGEMENT while leaving
 DecisionMaker    the ERP reads intact — that is what the four smoke policies are
-TriagePort       the eval runner drives it today; an HTTP route is the second
-                 caller and is not written yet
+TriagePort       the eval runner and the HTTP route, two adapters over one use
+                 case — which is what stops the eval measuring its own agent
 ```
 
 `Transport = (req: Request) => Promise<Response>` is the Fetch API itself. Production
@@ -184,6 +184,12 @@ the reason Hono was chosen over Express, and the TypeScript translation of the
 
 `src/composition.ts` is the only place the agent is assembled. The eval runner calls it
 rather than wiring its own, so the number it reports is about the agent that ships.
+
+The HTTP route is also where the trace finally has a consumer. `TraceRecorder` records
+every hop and, until the route existed, nothing in production read it back — it was
+written, tested and thrown away on every request. An operator reviewing a decision needs
+to see what the agent saw, in the order it saw it, including the four attempts it took to
+get the order.
 
 **The layering is a test, not a promise.** `tests/architecture.test.ts` fails if the
 domain imports a library, if a port names an adapter, if the simulator reaches into the

@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "dev": "tsx src/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -19,6 +20,7 @@
     "report": "tsx evals/report.ts"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.1",
     "hono": "4.13.7",
     "zod": "4.5.4"
   },

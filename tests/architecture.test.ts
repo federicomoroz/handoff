@@ -67,6 +67,9 @@ function readModules(dir: string): Module[] {
   });
 }
 
+/** The only files allowed to name an adapter: they assemble, they do not decide. */
+const WIRING = ['src/composition.ts', 'src/main.ts'];
+
 const isRelative = (spec: string): boolean => spec.startsWith('src/') || spec.startsWith('evals/');
 const isNodeBuiltin = (spec: string): boolean => spec.startsWith('node:');
 
@@ -118,12 +121,18 @@ describe('the dependency rule', () => {
     }
   });
 
-  it('only the composition root reaches into the adapters', () => {
+  it('only the wiring reaches into the adapters', () => {
     // Adapters may talk to each other inside their own directory — the SGC adapter uses
     // its session and its parsers, and splitting that would be pedantry. What must not
     // happen is the domain, a port, the use case or the simulator naming one.
+    //
+    // Two files are allowed to: the composition root, which assembles the agent, and the
+    // process entry point, which hands the assembled agent to a server. Both are wiring
+    // and neither holds a decision. The list is written out rather than inferred, so a
+    // third place to wire things has to be a deliberate edit to this test — which is how
+    // this rule caught `main.ts` on the commit that introduced it.
     const offenders = src
-      .filter((m) => !m.path.startsWith('src/adapters/') && m.path !== 'src/composition.ts')
+      .filter((m) => !m.path.startsWith('src/adapters/') && !WIRING.includes(m.path))
       .flatMap((m) =>
         m.imports.filter((s) => s.startsWith('src/adapters/')).map((s) => `${m.path} -> ${s}`),
       );
@@ -131,12 +140,12 @@ describe('the dependency rule', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('only the composition root builds the simulated ERP', () => {
+  it('only the wiring builds the simulated ERP', () => {
     // The fake ERP is a test double that happens to run in the demo. The day a real SGC
     // exists, `erpTransport` is passed and nothing else in the app changes — which is
     // only true while no adapter, use case or port has quietly imported the simulator.
     const offenders = src
-      .filter((m) => !m.path.startsWith('src/external-mocks/') && m.path !== 'src/composition.ts')
+      .filter((m) => !m.path.startsWith('src/external-mocks/') && !WIRING.includes(m.path))
       .flatMap((m) =>
         m.imports.filter((s) => s.startsWith('src/external-mocks/')).map((s) => `${m.path} -> ${s}`),
       );
