@@ -1,5 +1,7 @@
 # handoff
 
+[![ci](https://github.com/federicomoroz/handoff/actions/workflows/ci.yml/badge.svg)](https://github.com/federicomoroz/handoff/actions/workflows/ci.yml)
+
 An incident triage agent that works against a legacy ERP it does not control, with hard
 guardrails and an eval suite that blocks the merge when the agent gets worse.
 
@@ -25,7 +27,7 @@ Everything runs locally and costs nothing: the model is `qwen2.5:3b` on Ollama.
 ```bash
 npm ci
 npm run typecheck            # tsc --noEmit, strict + noUncheckedIndexedAccess
-npm test                     # 184 tests, no network, no model, no GPU
+npm test                     # no network, no model, no GPU
 npm run evals -- --smoke     # the four smoke policies check the harness, offline
 npm run evals -- --reps 4    # the real model, needs Ollama on :11434
 npm run report               # report.md for the last run
@@ -196,7 +198,7 @@ milliseconds, with no model.
 
 Two jobs, both free and offline:
 
-- `tests` — typecheck and 184 tests.
+- `tests` — typecheck and the whole suite.
 - `evals` — the four smoke policies, self-checking. The simulated ERP is read for real
   and the guardrails run for real, so this fails if the harness, the guardrails or the
   gate break.
