@@ -57,6 +57,17 @@ export interface StackOptions {
    */
   readonly erpTransport?: Transport;
   readonly llm?: LlmPort;
+  /**
+   * The seed of the DEFAULT backend, for callers that want to vary the model without
+   * knowing which model it is.
+   *
+   * The eval needs this: at temperature 0 the same seed returns the same answer, so
+   * repetitions that do not vary it count one run several times and report a confidence
+   * interval of zero. Passing it here rather than letting the runner build its own
+   * backend is what keeps the eval on the production assembly — the runner says "vary
+   * the seed", and this file stays the only place that decides what the backend is.
+   */
+  readonly llmSeed?: number;
   /** Replaces the judgement entirely. This is how the oracle and null policies get in. */
   readonly decider?: DecisionMakerPort;
 }
@@ -67,8 +78,14 @@ export function buildTriageStack({
   draw = systemDraw,
   erpTransport,
   llm,
+  llmSeed,
   decider,
 }: StackOptions = {}): TriageStack {
+  // Silently ignoring one of the two would let an eval believe it varied the model
+  // across repetitions while every run used the same seed.
+  if (llm && llmSeed !== undefined) {
+    throw new Error('llmSeed only applies to the default backend; a supplied llm carries its own');
+  }
   // No third branch: either a transport was handed in, or the simulator is built. The
   // previous fallback to `networkTransport` was unreachable — it could only be chosen by
   // a caller who had already supplied a transport.
@@ -76,7 +93,8 @@ export function buildTriageStack({
 
   const erp = buildSgcErpAdapter(new SgcSession(transport));
   const gatherer = buildErpFactGatherer(erp);
-  const resolvedDecider = decider ?? buildLlmDecisionMaker(llm ?? buildOllamaLlm());
+  const resolvedDecider =
+    decider ?? buildLlmDecisionMaker(llm ?? buildOllamaLlm(llmSeed === undefined ? {} : { seed: llmSeed }));
 
   return {
     triage: buildTriageUseCase({ gatherer, decider: resolvedDecider }),

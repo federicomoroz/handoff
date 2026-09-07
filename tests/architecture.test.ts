@@ -161,24 +161,33 @@ describe('the eval suite runs the production stack', () => {
   /**
    * Requirement 13. An eval that assembles its own agent measures its own agent.
    *
-   * The rule is stated over whatever `evals/` contains, so it starts empty and starts
-   * biting the moment the runner lands.
+   * The line is drawn between the scenario and the agent. `evals/` may set up the
+   * foreign system — pick a profile, edit a seed, pin a die — because staging the
+   * situation is its job. What it may not do is reach into `adapters/` or `use-cases/`
+   * and build the thing under test, because then the number it reports describes an
+   * agent that exists only inside the eval.
+   *
+   * The first version of this rule banned `external-mocks` too, and it turned red the
+   * moment the seed overrides landed. The import was right and the rule was wrong: the
+   * eval has to be able to say "the same case, but this order costs 612.400".
    */
   const evalModules = readModules('evals');
 
-  it('nobody there constructs the parts by hand', () => {
+  it('nobody there builds the agent by hand', () => {
     const offenders = evalModules.flatMap((m) =>
       m.imports
-        .filter(
-          (s) =>
-            s.startsWith('src/') &&
-            !s.startsWith('src/domain/') &&
-            !s.startsWith('src/ports/') &&
-            s !== 'src/composition',
-        )
+        .filter((s) => s.startsWith('src/adapters/') || s.startsWith('src/use-cases/'))
         .map((s) => `${m.path} -> ${s}`),
     );
 
     expect(offenders).toEqual([]);
+  });
+
+  it('the stack comes from the composition root, and from nowhere else', () => {
+    // Not "someone imports it" — the runner specifically. A helper importing it while
+    // the runner wires its own would pass a weaker check.
+    const runner = evalModules.find((m) => m.path === 'evals/runner.ts');
+    expect(runner, 'evals/runner.ts should exist').toBeDefined();
+    expect(runner!.imports).toContain('src/composition');
   });
 });

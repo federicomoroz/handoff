@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "probe": "tsx scripts/probe-ollama.ts",
     "triage": "tsx scripts/triage-once.ts",
-    "measure": "tsx scripts/measure-citations.ts"
+    "measure": "tsx scripts/measure-citations.ts",
+    "evals": "tsx evals/runner.ts"
   },
   "dependencies": {
     "hono": "4.13.7",
